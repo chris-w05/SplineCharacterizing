@@ -112,14 +112,14 @@ end
 figure('Name','G-Forces & Speed');
 
 % Speed
-subplot(4,1,1);
+subplot(5,1,1);
 plot(t_hist, v_hist, 'k', 'LineWidth', 1.5); 
 grid on;
 ylabel('Speed [m/s]');
 title('Speed');
 
 % Accelerations
-subplot(4,1,2);
+subplot(5,1,2);
 plot(t_hist, aT_hist/g, 'r', 'LineWidth', 1.5); hold on;
 plot(t_hist, aN_hist/g, 'b', 'LineWidth', 1.5);
 ylabel('Acceleration [g]');
@@ -127,16 +127,26 @@ legend('Tangential','Normal','Location','best');
 grid on;
 title('Accelerations');
 
+% Force
+subplot(5,1,3);
+plot(t_hist, m * aT_hist/g, 'r', 'LineWidth', 1.5); hold on;
+plot(t_hist, m * aN_hist/g, 'b', 'LineWidth', 1.5);
+plot(t_hist, m * g_hist, 'm', 'LineWidth', 1.5);
+ylabel('Force [N]');
+legend('Tangential','Normal', 'Net', 'Location','best');
+grid on;
+title('Forces');
+
 % Net g-force
-subplot(4,1,3);
-plot(t_hist, g_hist, 'm', 'LineWidth', 1.5); 
+subplot(5,1,4);
+plot(t_hist, g_hist, 'm', 'LineWidth', 1.5); hold on;
 grid on;
 ylabel('Total g');
 xlabel('Time [s]');
 title('Net g-force experienced');
 
 % Energies
-subplot(4,1,4);
+subplot(5,1,5);
 plot(t_hist, KE_hist, 'r', 'LineWidth', 1.5); hold on;
 plot(t_hist, PE_hist, 'b', 'LineWidth', 1.5);
 E_tot = KE_hist + PE_hist;

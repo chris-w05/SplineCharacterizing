@@ -91,7 +91,7 @@ aN_hist  = aN_hist(1:step-1);
 g_hist   = g_hist(1:step-1);
 t_hist   = t_hist(1:step-1);
 KE_hist  = KE_hist(1:step-1);
-PE_hist  = KE_hist(1:step-1);
+PE_hist  = PE_hist(1:step-1);
 
 %% === Animation ===
 curve = Bezier(linspace(0,1,400),CP);
@@ -127,9 +127,13 @@ legend('Tangential','Normal','Location','best');
 grid on;
 title('Accelerations');
 
+% Force
+plot(t_hist, m * aT_hist/g, 'r', 'LineWidth', 1.5); hold on;
+plot(t_hist,  m * aN_hist/g, 'b', 'LineWidth', 1.5);
+
 % Net g-force
 subplot(4,1,3);
-plot(t_hist, g_hist, 'm', 'LineWidth', 1.5); 
+plot(t_hist, g_hist, 'm', 'LineWidth', 1.5); hold on;
 grid on;
 ylabel('Total g');
 xlabel('Time [s]');
@@ -138,8 +142,9 @@ title('Net g-force experienced');
 % Energies
 subplot(4,1,4);
 plot(t_hist, KE_hist, 'r', 'LineWidth', 1.5); hold on;
-plot(t_hist, PE_hist, 'b', 'LineWidth', 1.5); hold on;
-plot(t_hist, KE_hist + PE_hist, 'g', 'LineWidth', 1.5); % total energy
+plot(t_hist, PE_hist, 'b', 'LineWidth', 1.5);
+E_tot = KE_hist + PE_hist;
+plot(t_hist, E_tot, 'g', 'LineWidth', 1.5); % total energy
 ylabel('Energy [J]');
 legend('Kinetic','Potential','Total','Location','best');
 grid on;
