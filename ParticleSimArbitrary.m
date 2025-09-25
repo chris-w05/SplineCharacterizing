@@ -1,0 +1,353 @@
+%% ParticleOnBezier_AnimG.m
+% Simulate particle constrained to parametric curve, animate, track g-forces
+% Generalized to handle any parametric function r(u), with derivatives
+
+clear; clc; close all;
+
+% === Parameters ===
+r_start = 16;    % Entrance radius
+r_end = 25;      % Exit radius
+p_0 = [51.75, 108.66, 18.22];  % Start of track
+m_0 = 0;         % Start of track angle in degrees
+p_1 = [85, 105, 17];           % Helix entrance 
+m_1_theta = 52.36;             % Helix entrance angle in degrees
+theta_bank = 71.25;            % Track tilt in degrees (not used in simulation)
+n_rotations = 2.3;             % Turn angle in radians
+d_z_helix = 15;                % Height change of helix
+p_3 = [77, 34.56, 4];          % Track end coordinate
+m_3_theta = 208;               % Section exit angle in degrees
+
+% Compute entry and exit for helix
+p_helix_start = helix(0);
+p_helix_end = helix(n_rotations);
+unit_entry = helix_derivative(0) / norm(helix_derivative(0));
+unit_exit = helix_derivative(n_rotations) / norm(helix_derivative(n_rotations));
+
+% Define first spline (leading into helix)
+unit_start = [cosd(m_0), sind(m_0), 0];
+dist1 = norm(p_1 - p_0);
+l1 = dist1 / 3;
+l2 = l1;
+CP1 = [p_0; ...
+       p_0 + l1 * unit_start; ...
+       p_1 - l2 * unit_entry; ...
+       p_1];
+
+% Define second spline (leading out of helix)
+unit_end = [cosd(m_3_theta), sind(m_3_theta), 0];
+dist2 = norm(p_3 - p_helix_end);
+l3 = dist2 / 3;
+l4 = l3;
+CP2 = [p_helix_end; ...
+       p_helix_end + l3 * unit_exit; ...
+       p_3 - l4 * unit_end; ...
+       p_3];
+
+% Parameter ranges
+u_spline1 = 1;
+u_helix = n_rotations;
+u_spline2 = 1;
+u_max = u_spline1 + u_helix + u_spline2;
+
+% Define function handles for position and derivatives
+position_func = @(u) position_wrapper(u, CP1, CP2);
+derivative_func = @(u) derivative_wrapper(u, CP1, CP2);
+second_derivative_func = @(u) second_derivative_wrapper(u, CP1, CP2);
+
+% === Physics parameters ===
+m   = 1.0;     % kg
+g   = 9.81;    % m/s^2
+mu  = 0.05;    % kinetic friction
+rho = 1.225;   % kg/m^3
+Cd  = 1;     % drag coefficient
+A   = 0.01;    % m^2
+
+% === Time stepping ===
+dt   = 1e-3;
+tmax = 30;
+
+% === Initial conditions ===
+u = 0;  v = 19.4;  t = 0;
+
+% Storage
+maxSteps = ceil(tmax/dt);
+pos_hist = zeros(maxSteps,3);
+v_hist   = zeros(maxSteps,1);
+aT_hist  = zeros(maxSteps,1); % tangential accel
+aN_hist  = zeros(maxSteps,1); % normal accel
+g_hist   = zeros(maxSteps,1);
+t_hist   = zeros(maxSteps,1);
+KE_hist  = zeros(maxSteps,1);
+PE_hist  = zeros(maxSteps,1);
+
+step = 1;
+while t < tmax && u < u_max
+    % Evaluate curve + derivatives
+    r   = position_func(u);
+    rp  = derivative_func(u);
+    rpp = second_derivative_func(u);
+    speed_rp = norm(rp);
+    tangent  = rp / speed_rp;
+
+    % Forces along tangent
+    Fg_t = dot([0 0 -m*g], tangent);
+    cosAlpha = sqrt(max(0,1 - tangent(3)^2));
+    Ff = -mu*m*g*cosAlpha*sign(v);
+    Fd = -0.5*rho*Cd*A*v*abs(v);
+    F_net = Fg_t + Ff + Fd;
+
+    % Tangential accel
+    aT = F_net/m;
+
+    % Integrate v (semi-implicit Euler)
+    v = v + aT*dt; %if v < 0, v = 0; end
+
+    % Update u
+    du = (v*dt)/speed_rp;
+    u  = min(u_max,u+du);
+
+    % Normal accel from curvature
+    crossProd = cross(rp,rpp);
+    kappa = norm(crossProd)/(speed_rp^3);  % curvature
+    aN = v^2*kappa;
+
+    % Total g-force
+    gforce = sqrt(aT^2 + aN^2)/g;
+
+    % Store
+    pos_hist(step,:) = r;
+    v_hist(step)   = v;
+    aT_hist(step)  = aT;
+    aN_hist(step)  = aN;
+    g_hist(step)   = gforce;
+    t_hist(step)   = t;
+    KE_hist(step)  = .5 * m * v^2;
+    PE_hist(step)  = m * g * pos_hist(step, 3);
+
+    % Advance time
+    t = t + dt; step = step + 1;
+end
+
+% Trim
+pos_hist = pos_hist(1:step-1,:);
+v_hist   = v_hist(1:step-1);
+aT_hist  = aT_hist(1:step-1);
+aN_hist  = aN_hist(1:step-1);
+g_hist   = g_hist(1:step-1);
+t_hist   = t_hist(1:step-1);
+KE_hist  = KE_hist(1:step-1);
+PE_hist  = PE_hist(1:step-1);
+
+%% === Animation ===
+u_vals = linspace(0, u_max, 1200);
+curve = position_func(u_vals);
+
+figure('Name','Particle Animation');
+plot3(curve(:,1),curve(:,2),curve(:,3),'b-','LineWidth',1.5); hold on;
+plot3(CP1(:,1),CP1(:,2),CP1(:,3),'ro--');
+plot3(CP2(:,1),CP2(:,2),CP2(:,3),'ro--');
+hPart = plot3(pos_hist(1,1),pos_hist(1,2),pos_hist(1,3),'ko','MarkerSize',8,'MarkerFaceColor','k');
+xlabel('x'); ylabel('y'); zlabel('z'); grid on; axis equal;
+title('Particle on Parametric Curve');
+
+for k=1:50:length(pos_hist)
+    set(hPart,'XData',pos_hist(k,1),'YData',pos_hist(k,2),'ZData',pos_hist(k,3));
+    drawnow;
+end
+
+%% === Plots of dynamics ===
+figure('Name','G-Forces & Speed');
+
+% Speed
+subplot(4,1,1);
+plot(t_hist, v_hist, 'k', 'LineWidth', 1.5); 
+grid on;
+ylabel('Speed [m/s]');
+title('Speed');
+
+% Accelerations
+subplot(4,1,2);
+plot(t_hist, aT_hist/g, 'r', 'LineWidth', 1.5); hold on;
+plot(t_hist, aN_hist/g, 'b', 'LineWidth', 1.5);
+ylabel('Acceleration [g]');
+legend('Tangential','Normal','Location','best');
+grid on;
+title('Accelerations');
+
+% Net g-force
+subplot(4,1,3);
+plot(t_hist, g_hist, 'm', 'LineWidth', 1.5); 
+grid on;
+ylabel('Total g');
+xlabel('Time [s]');
+title('Net g-force experienced');
+
+% Energies
+subplot(4,1,4);
+plot(t_hist, KE_hist, 'r', 'LineWidth', 1.5); hold on;
+plot(t_hist, PE_hist, 'b', 'LineWidth', 1.5);
+E_tot = KE_hist + PE_hist;
+plot(t_hist, E_tot, 'g', 'LineWidth', 1.5); % total energy
+ylabel('Energy [J]');
+legend('Kinetic','Potential','Total','Location','best');
+grid on;
+xlabel('Time [s]');
+title('Energies');
+
+%% --- Wrapper functions --- %%
+function r = position_wrapper(u, CP1, CP2)
+    u = u(:).';
+    r = zeros(length(u), 3);
+    mask1 = u < 1;
+    r(mask1, :) = Bezier(u(mask1), CP1);
+    mask2 = (u >= 1) & (u < 1 + 2.3);
+    r(mask2, :) = helix(u(mask2) - 1);
+    mask3 = u >= 1 + 2.3;
+    r(mask3, :) = Bezier(u(mask3) - (1 + 2.3), CP2);
+end
+
+function rp = derivative_wrapper(u, CP1, CP2)
+    u = u(:).';
+    rp = zeros(length(u), 3);
+    mask1 = u < 1;
+    rp(mask1, :) = BezierDerivative(u(mask1), CP1);
+    mask2 = (u >= 1) & (u < 1 + 2.3);
+    rp(mask2, :) = helix_derivative(u(mask2) - 1);
+    mask3 = u >= 1 + 2.3;
+    rp(mask3, :) = BezierDerivative(u(mask3) - (1 + 2.3), CP2);
+end
+
+function rpp = second_derivative_wrapper(u, CP1, CP2)
+    u = u(:).';
+    rpp = zeros(length(u), 3);
+    mask1 = u < 1;
+    rpp(mask1, :) = BezierSecondDerivative(u(mask1), CP1);
+    mask2 = (u >= 1) & (u < 1 + 2.3);
+    rpp(mask2, :) = helix_second_derivative(u(mask2) - 1);
+    mask3 = u >= 1 + 2.3;
+    rpp(mask3, :) = BezierSecondDerivative(u(mask3) - (1 + 2.3), CP2);
+end
+
+%% --- Local functions: Helix & derivatives (vectorized) --- %%
+function point = helix(t)
+    t = t(:).';
+    p1x = 85;
+    p1y = 105;
+    p1z = 17;
+    rstart = 16;
+    rend = 25;
+    rotations = 2.3;
+    m1theta = 52.36 * pi/180;
+    dzhelix = 15;
+
+    x = p1x + ((rstart - ((rstart - rend)/rotations).*t).*cos(t - m1theta - pi/2)) + (rstart*cos(-1*m1theta + pi/2));
+    y = p1y - ((rstart - ((rstart - rend)/rotations).*t).*sin(t - m1theta - pi/2)) - (rstart*sin(-1*m1theta + pi/2));
+    z = p1z - (t.*dzhelix/rotations);
+    point = [x' y' z'];
+end
+
+function dpoint = helix_derivative(t)
+    t = t(:).';
+    p1x = 85;
+    p1y = 105;
+    p1z = 17;
+    rstart = 16;
+    rend = 25;
+    rotations = 2.3;
+    m1theta = 52.36 * pi/180;
+    dzhelix = 15;
+
+    drdt = (rend - rstart)/rotations;
+    r = rstart + drdt .* t;
+    phi = t - m1theta - pi/2;
+    dx = drdt .* cos(phi) - r .* sin(phi);
+    dy = - drdt .* sin(phi) - r .* cos(phi);
+    dz = -dzhelix/rotations + zeros(size(t));
+    dpoint = [dx' dy' dz'];
+end
+
+function ddpoint = helix_second_derivative(t)
+    t = t(:).';
+    p1x = 85;
+    p1y = 105;
+    p1z = 17;
+    rstart = 16;
+    rend = 25;
+    rotations = 2.3;
+    m1theta = 52.36 * pi/180;
+    dzhelix = 15;
+
+    drdt = (rend - rstart)/rotations;
+    r = rstart + drdt .* t;
+    phi = t - m1theta - pi/2;
+    ddx = -2*drdt .* sin(phi) - r .* cos(phi);
+    ddy = -2*drdt .* cos(phi) + r .* sin(phi);
+    ddz = zeros(size(t));
+    ddpoint = [ddx' ddy' ddz'];
+end
+
+%% --- Local functions: Bezier & derivatives --- %%
+function pts = Bezier(t, control_points)
+    % t may be scalar or column vector. Returns length(t)-by-D matrix
+    t = t(:);
+    n = size(control_points,1) - 1;
+    if n < 0
+        pts = zeros(length(t), size(control_points,2));
+        return;
+    end
+    binoms = arrayfun(@(k) nchoosek(n,k), 0:n);    % 1 x (n+1)
+    % Build T^i and (1-T)^{n-i}
+    Ti = bsxfun(@power, t, 0:n);                  % length(t) x (n+1)
+    OneMinus = bsxfun(@power, 1-t, n:-1:0);       % length(t) x (n+1)
+    B = bsxfun(@times, Ti .* OneMinus, binoms);   % length(t) x (n+1)
+    pts = B * control_points;                     % length(t) x D
+end
+
+function d = BezierDerivative(t, control_points)
+    % derivative dr/du of Bézier at parameter t (scalar t or column vector)
+    t = t(:);
+    n = size(control_points,1) - 1;
+    if n <= 0
+        d = zeros(length(t), size(control_points,2));
+        return;
+    end
+    % derivative control points: n*(P_{i+1} - P_i), i=0..n-1
+    dCP = n * (control_points(2:end,:) - control_points(1:end-1,:)); % n x D
+    k = n - 1;
+    binoms = arrayfun(@(j) nchoosek(k,j), 0:k);
+    Ti = bsxfun(@power, t, 0:k);
+    OneMinus = bsxfun(@power, 1-t, k:-1:0);
+    B = bsxfun(@times, Ti .* OneMinus, binoms);   % length(t) x (k+1)
+    d = B * dCP;                                   % length(t) x D
+    % If input t was scalar, output as 1xD; if vector -> length(t) x D
+end
+
+function acc = BezierSecondDerivative(t, control_points)
+    % BezierSecondDerivative
+    % Computes second derivative (acceleration vector) of a Bézier curve
+    % at parameter values t.
+    %
+    % INPUTS:
+    %   t               - vector of parameter values in [0,1]
+    %   control_points  - NxD matrix of control points (N points, D dims)
+    %
+    % OUTPUT:
+    %   acc             - length(t)-by-D matrix of second derivative values
+
+    n = size(control_points,1) - 1;   % degree
+    D = size(control_points,2);       % dimension
+    
+    if n < 2
+        error('Need at least 3 control points for a second derivative.');
+    end
+
+    % Build "second derivative control points"
+    Q = zeros(n-1, D);
+    for i = 0:n-2
+        Q(i+1,:) = (n * (n-1)) * (control_points(i+3,:) ...
+                        - 2*control_points(i+2,:) + control_points(i+1,:));
+    end
+
+    % Now Q are the control points for a (n-2)-degree Bézier curve
+    acc = Bezier(t, Q); 
+end
